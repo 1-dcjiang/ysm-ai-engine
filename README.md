@@ -6,7 +6,8 @@
 
 **YSM AI Engine** 是一套面向 AI 编程助手（Antigravity、Claude Code、Cursor、Codex 等）及程序化建模工作流的开源 **Minecraft Yes Steve Model (YSM)** 研发框架。  
 它让 AI 无需打开 Blockbench 图形界面，即可通过纯 Python 代码完成**「三视图精确量尺 → 程序化体素建模与 UV 自动装箱 → 离线 SSAO 三视图/50-50 叠图自检 → YSM 2.6.0 零报错校验 → 一键打包 `.zip` 与 `.bbmodel`」**全链路生产。
-
+模型推荐——Gemini4 Neon及以上   GPT6.2sol及以上   Claude暂无参考
+不推荐使用deepseekv4.1flash 效果不佳
 ---
 
 ## 效果展示（内置完整示例：`examples/skull_hoodie_girl`）
