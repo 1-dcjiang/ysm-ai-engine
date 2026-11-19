@@ -1,0 +1,29 @@
+[build-system]
+requires = ["setuptools>=68.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "ysm-ai-engine"
+version = "0.1.0"
+description = "Procedural Minecraft YSM (Yes Steve Model) 2.6.0 modeling, SSAO software rendering, and validation engine built for AI agents."
+readme = "README.md"
+license = { text = "MIT" }
+requires-python = ">=3.9"
+authors = [
+    { name = "chenx5452321" },
+]
+keywords = ["minecraft", "ysm", "yes-steve-model", "bedrock", "blockbench", "ai-agent", "3d-modeling"]
+dependencies = [
+    "numpy>=1.24.0",
+    "pillow>=10.0.0",
+]
+
+[project.scripts]
+ysm-analyze = "ysm_engine.analyze_ref:main"
+ysm-render = "ysm_engine.renderer:main"
+ysm-validate = "ysm_engine.validate:main"
+ysm-package = "ysm_engine.package:main"
+ysm-export-bbmodel = "ysm_engine.export_bbmodel:main"
+
+[tool.setuptools.packages.find]
+include = ["ysm_engine*"]

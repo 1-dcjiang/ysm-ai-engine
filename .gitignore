@@ -1,0 +1,29 @@
+# Byte-compiled / Python packaging
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+.eggs/
+build/
+dist/
+.pytest_cache/
+.venv/
+venv/
+
+# Generated model outputs & temporary renders
+out/
+renders/
+*.zip
+*.bbmodel
+examples/*/dist/
+examples/*/out/
+examples/*/renders/
+examples/*/reference/crops/
+examples/*/reference/ref_ruler.png
+examples/*/reference/ref_analysis.json
+
+# OS / Editor
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
