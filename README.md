@@ -6,8 +6,9 @@
 
 **YSM AI Engine** 是一套面向 AI 编程助手（Antigravity、Claude Code、Cursor、Codex 等）及程序化建模工作流的开源 **Minecraft Yes Steve Model (YSM)** 研发框架。  
 它让 AI 无需打开 Blockbench 图形界面，即可通过纯 Python 代码完成**「三视图精确量尺 → 程序化体素建模与 UV 自动装箱 → 离线 SSAO 三视图/50-50 叠图自检 → YSM 2.6.0 零报错校验 → 一键打包 `.zip` 与 `.bbmodel`」**全链路生产。
-模型推荐——Gemini4 Neon及以上   GPT6.2sol及以上   Claude暂无参考
-不推荐使用deepseekv4.1flash 效果不佳
+
+> **模型推荐**：推荐使用 **Gemini 4 Neon 及以上**、**GPT 6.2 Sol 及以上**；Claude 系列暂无参考；**不推荐使用 DeepSeek v4.1 Flash**（效果不佳，详见[推荐模型选型](#%E6%8E%A8%E8%8D%90%E6%A8%A1%E5%9E%8B%E9%80%89%E5%9E%8B)）。
+
 ---
 
 ## 效果展示（内置完整示例：`examples/skull_hoodie_girl`）
@@ -218,6 +219,17 @@ ysm-package dist/my_girl
 1. 把本仓库设为工作区，或在你的 AI Agent（Antigravity / Claude Code / Cursor 等）提示词中要求它**先阅读 `prompts/AGENT_GUIDE.md`**。
 2. 也可以直接将 `prompts/SKILL.md` 复制到你的 `.agent/skills/ysm-procedural-modeling/SKILL.md` 或 `.claude/skills/` 目录。
 3. 发送角色设定图或三视图给 AI，即可让它自动按 **4 阶段闭环流程**（量尺 → 白模 → 50/50 叠图精雕 → 动画校验打包）高还原度完成角色。
+
+### 推荐模型选型
+
+由于本引擎高度依赖 AI 的**多模态三视图空间理解、50/50 叠图视觉自检与长上下文迭代能力**，模型表现参考如下：
+
+| 模型系列 | 推荐等级 | 说明 |
+| :--- | :---: | :--- |
+| **Gemini 4 Neon 及以上** | ✅ 强烈推荐 | 多模态看图对齐、三维空间还原与多轮细节精修表现稳定 |
+| **GPT 6.2 Sol 及以上** | ✅ 强烈推荐 | 代码生成、坐标计算与复杂结构迭代能力扎实 |
+| **Claude 系列** | ➖ 暂无参考 | 暂未针对本工作流完成系统实测 |
+| **DeepSeek v4.1 Flash** | ❌ 不推荐 | 空间比例把握与复杂叠图视觉自检容易出现偏差，不建议用于精细角色还原 |
 
 ---
 
