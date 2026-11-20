@@ -242,6 +242,29 @@ ysm-package dist/my_girl
 
 ---
 
+## 贡献者 (Contributors)
+
+<table>
+  <tr>
+    <td align="center" width="160">
+      <a href="https://github.com/chenx5452321">
+        <img src="https://github.com/chenx5452321.png?size=160" width="96" height="96" alt="chenx5452321" style="border-radius: 50%;" /><br />
+        <b>chenx5452321</b>
+      </a><br />
+      <sub>项目发起 · 策划与审核</sub>
+    </td>
+    <td align="center" width="160">
+      <a href="https://deepmind.google/technologies/gemini/">
+        <img src="assets/contributors/gemini.png" width="96" height="96" alt="Gemini" /><br />
+        <b>Gemini</b>
+      </a><br />
+      <sub>AI 建模引擎 · 渲染与示例开发</sub>
+    </td>
+  </tr>
+</table>
+
+---
+
 ## License
 
 本项目基于 [MIT License](LICENSE) 开源。
