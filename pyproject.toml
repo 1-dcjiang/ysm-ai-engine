@@ -24,6 +24,10 @@ ysm-render = "ysm_engine.renderer:main"
 ysm-validate = "ysm_engine.validate:main"
 ysm-package = "ysm_engine.package:main"
 ysm-export-bbmodel = "ysm_engine.export_bbmodel:main"
+ysm-viewer = "ysm_engine.viewer:main"
 
 [tool.setuptools.packages.find]
 include = ["ysm_engine*"]
+
+[tool.setuptools.package-data]
+ysm_engine = ["viewer_static/*", "viewer_static/js/*"]

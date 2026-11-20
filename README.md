@@ -70,7 +70,9 @@ ysm-ai-engine/
 │   ├── analyze_ref.py                 # 参考三视图自动裁切、像素标尺与色板测量
 │   ├── validate.py                    # YSM 2.5 / 2.6.0 合规校验器
 │   ├── export_bbmodel.py              # Blockbench .bbmodel 导出器
-│   └── package.py                     # 校验 + .zip / .bbmodel 打包器
+│   ├── package.py                     # 校验 + .zip / .bbmodel 打包器
+│   ├── viewer.py                      # 零依赖本地 WebGL2 3D 模型预览器服务 (ysm-viewer)
+│   └── viewer_static/                 # 纯原生 WebGL2 展示与骨骼调姿前端资源
 │
 ├── prompts/                           # AI Agent 上下文规范与 Skill 模板
 │   ├── AGENT_GUIDE.md                 # AI 建模 SOP、Bedrock 坐标系与 YSM 2.6.0 硬性规范
@@ -108,6 +110,7 @@ pip install -e .
 * `ysm-validate` —— 执行 YSM 2.6.0 合规校验
 * `ysm-package` —— 校验并打包 `.zip` 与 `.bbmodel`
 * `ysm-export-bbmodel` —— 单独将 `main.json` + 贴图 + 动画转为 `.bbmodel`
+* `ysm-viewer` —— 启动本地 WebGL2 3D 交互预览与逐骨骼调姿台（支持 `.zip` / `.bbmodel` / 文件夹拖拽、环境光与 360° 天空盒/HDR）
 
 ### 方式 B：零安装即拷即用（Portable 模式）
 
