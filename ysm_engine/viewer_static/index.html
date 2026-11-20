@@ -1,0 +1,454 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>YSM 3D Studio — Yes Steve Model 网页展示与调试台</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <!-- Fullscreen Drag & Drop Overlay -->
+  <div id="dropOverlay" class="drop-overlay hidden">
+    <div class="drop-card">
+      <div class="drop-icon">📦</div>
+      <div class="drop-title">松开鼠标即可导入 YSM 模型</div>
+      <div class="drop-sub">支持 .zip 模型包、.bbmodel 工程，或散文件（main.json + .png + .animation.json）</div>
+    </div>
+  </div>
+
+  <!-- Top Navigation Header -->
+  <header class="topbar">
+    <div class="brand">
+      <span class="brand-badge">YSM 2.6</span>
+      <div class="brand-text">
+        <h1>YSM 3D 模型展示台</h1>
+        <span id="modelMetaSub" class="brand-sub">请拖入或导入 .zip / .bbmodel / 模型文件夹</span>
+      </div>
+    </div>
+
+    <div class="topbar-actions">
+      <button id="btnImportFiles" class="btn btn-primary" title="导入 .zip / .bbmodel / 散文件">
+        <span>📂</span> 导入模型 / ZIP
+      </button>
+      <button id="btnImportFolder" class="btn btn-ghost" title="直接选择解压后的 YSM 模型文件夹">
+        <span>📁</span> 导入文件夹
+      </button>
+      <button id="btnLoadDemo" class="btn btn-ghost hidden" title="重新加载启动时指定的本地模型目录">
+        <span>🔄</span> 重载本地模型
+      </button>
+      <button id="btnScreenshot" class="btn btn-ghost" title="保存当前视图为高清 PNG 截图">
+        <span>📸</span> 截图
+      </button>
+      <button id="btnTogglePanel" class="btn btn-icon" title="折叠 / 展开右侧控制面板">☰</button>
+    </div>
+
+    <!-- Hidden File Inputs -->
+    <input id="fileInput" type="file" multiple accept=".zip,.ysm,.bbmodel,.json,.png" hidden />
+    <input id="folderInput" type="file" webkitdirectory directory multiple hidden />
+    <input id="texInput" type="file" accept=".png" hidden />
+    <input id="animInput" type="file" accept=".json" hidden />
+    <input id="skyboxInput" type="file" accept=".png,.jpg,.jpeg,.webp,.hdr" hidden />
+  </header>
+
+  <!-- Main Workspace -->
+  <main class="workspace">
+    <!-- 3D Viewport Stage -->
+    <section id="stageWrap" class="stage-wrap">
+      <canvas id="glCanvas"></canvas>
+
+      <!-- Top-Left Model Stats Pill -->
+      <div class="hud-stats" id="hudStats">
+        <span id="statName">未加载模型</span>
+        <span class="dot">·</span>
+        <span id="statBones">0 骨骼</span>
+        <span class="dot">·</span>
+        <span id="statCubes">0 方块</span>
+        <span class="dot">·</span>
+        <span id="statTex">-</span>
+      </div>
+
+      <!-- Toast Message -->
+      <div id="toast" class="toast hidden"></div>
+
+      <!-- Bottom Camera & View Floating Dock -->
+      <div class="camera-dock">
+        <div class="dock-group">
+          <button class="dock-btn" data-cam="front">正面</button>
+          <button class="dock-btn" data-cam="side">左侧</button>
+          <button class="dock-btn" data-cam="back">背面</button>
+          <button class="dock-btn active" data-cam="threeQuarter">3/4 全身</button>
+          <button class="dock-btn" data-cam="closeup">面部特写</button>
+        </div>
+        <div class="dock-sep"></div>
+        <div class="dock-group">
+          <button id="btnOrtho" class="dock-btn" title="切换透视 / 正交相机">透视</button>
+          <button id="btnAutoRotate" class="dock-btn" title="自动转盘展示">转盘</button>
+          <button id="btnSkeleton" class="dock-btn" title="显示 / 隐藏 3D 骨骼与枢轴">骨骼</button>
+        </div>
+      </div>
+
+      <!-- Controls Hint -->
+      <div class="controls-hint">左键旋转 · 右键/Shift 平移 · 滚轮缩放 · 支持直接拖入 .zip / .bbmodel</div>
+    </section>
+
+    <!-- Right Inspector Panel -->
+    <aside id="inspector" class="inspector">
+      <nav class="tabs tabs-4">
+        <button class="tab-btn active" data-tab="anim">动作</button>
+        <button class="tab-btn" data-tab="bones">骨骼调节</button>
+        <button class="tab-btn" data-tab="light">光照/天空</button>
+        <button class="tab-btn" data-tab="model">模型/贴图</button>
+      </nav>
+
+      <!-- TAB 1: Animation & Pose -->
+      <div id="tab-anim" class="tab-content active">
+        <div class="card">
+          <div class="card-head">
+            <span class="card-title">播放控制</span>
+            <span id="timeLabel" class="mono-badge">0.00s / 3.00s</span>
+          </div>
+
+          <div class="transport-row">
+            <button id="btnPlayPause" class="btn btn-primary btn-sm">⏸ 暂停</button>
+            <button id="btnResetAnim" class="btn btn-ghost btn-sm">⏮ 重置</button>
+            <label class="toggle-chip">
+              <input id="chkLoop" type="checkbox" checked />
+              <span>循环</span>
+            </label>
+            <label class="toggle-chip" title="叠加 parallel0 微风待机层">
+              <input id="chkParallel" type="checkbox" checked />
+              <span>微风叠加</span>
+            </label>
+          </div>
+
+          <div class="slider-row">
+            <label>进度</label>
+            <input id="rngTime" type="range" min="0" max="1" step="0.002" value="0" />
+          </div>
+
+          <div class="slider-row">
+            <label>速度 <span id="valSpeed" class="val">1.0×</span></label>
+            <input id="rngSpeed" type="range" min="0.1" max="2.5" step="0.05" value="1.0" />
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-head">
+            <span class="card-title">动作列表 (<span id="animCount">0</span>)</span>
+            <input id="animSearch" class="search-input" type="text" placeholder="筛选动作..." />
+          </div>
+          <div id="animList" class="anim-grid"></div>
+        </div>
+
+        <div class="card">
+          <div class="card-head">
+            <span class="card-title">头部互动朝向</span>
+            <button id="btnResetHead" class="link-btn">回正</button>
+          </div>
+          <div class="slider-row">
+            <label>左右转头 (Yaw) <span id="valHeadYaw" class="val">0°</span></label>
+            <input id="rngHeadYaw" type="range" min="-55" max="55" step="1" value="0" />
+          </div>
+          <div class="slider-row">
+            <label>上下抬头 (Pitch) <span id="valHeadPitch" class="val">0°</span></label>
+            <input id="rngHeadPitch" type="range" min="-35" max="35" step="1" value="0" />
+          </div>
+        </div>
+      </div>
+
+      <!-- TAB 2: Per-Bone Manual Pose Editor -->
+      <div id="tab-bones" class="tab-content">
+        <div class="card">
+          <div class="card-head">
+            <span class="card-title">骨骼层级树 (<span id="boneCountLabel">0</span>)</span>
+            <input id="boneSearch" class="search-input" type="text" placeholder="搜索骨骼..." />
+          </div>
+          <div id="boneTree" class="bone-tree"></div>
+          <div class="bone-actions-row">
+            <button id="btnResetAllBones" class="btn btn-ghost btn-sm">♻️ 重置全部</button>
+            <button id="btnExportPose" class="btn btn-primary btn-sm">💾 导出动作 JSON</button>
+          </div>
+        </div>
+
+        <div class="card" id="boneEditorCard">
+          <div class="card-head">
+            <span class="card-title">当前骨骼：<span id="selBoneName" class="gold-text">未选择</span></span>
+            <button id="btnResetBone" class="link-btn">重置此骨骼</button>
+          </div>
+
+          <div class="model-part-row">
+            <span>调节模式：</span>
+            <div class="segment-row compact" id="boneModeSeg">
+              <button class="seg-btn active" data-bmode="add" title="在当前播放的动作基础上叠加偏移">叠加动画</button>
+              <button class="seg-btn" data-bmode="replace" title="忽略动画轨道，完全由手动值控制该骨骼">覆盖动作</button>
+            </div>
+          </div>
+
+          <div class="axis-group">
+            <div class="axis-group-head">
+              <span>旋转 Rotation (°)</span>
+              <button id="btnMirrorBone" class="link-btn" title="镜像复制到左右对称骨骼">⇄ 镜像对称</button>
+            </div>
+            <div class="axis-slider">
+              <span class="axis-tag axis-x">RX</span>
+              <input id="rngBoneRx" type="range" min="-180" max="180" step="1" value="0" />
+              <span id="valBoneRx" class="axis-val">0°</span>
+            </div>
+            <div class="axis-slider">
+              <span class="axis-tag axis-y">RY</span>
+              <input id="rngBoneRy" type="range" min="-180" max="180" step="1" value="0" />
+              <span id="valBoneRy" class="axis-val">0°</span>
+            </div>
+            <div class="axis-slider">
+              <span class="axis-tag axis-z">RZ</span>
+              <input id="rngBoneRz" type="range" min="-180" max="180" step="1" value="0" />
+              <span id="valBoneRz" class="axis-val">0°</span>
+            </div>
+          </div>
+
+          <div class="axis-group">
+            <div class="axis-group-head">
+              <span>位移 Position (u)</span>
+              <button id="btnResetBonePos" class="link-btn">归零</button>
+            </div>
+            <div class="axis-slider">
+              <span class="axis-tag axis-x">PX</span>
+              <input id="rngBonePx" type="range" min="-16" max="16" step="0.2" value="0" />
+              <span id="valBonePx" class="axis-val">0.0</span>
+            </div>
+            <div class="axis-slider">
+              <span class="axis-tag axis-y">PY</span>
+              <input id="rngBonePy" type="range" min="-16" max="16" step="0.2" value="0" />
+              <span id="valBonePy" class="axis-val">0.0</span>
+            </div>
+            <div class="axis-slider">
+              <span class="axis-tag axis-z">PZ</span>
+              <input id="rngBonePz" type="range" min="-16" max="16" step="0.2" value="0" />
+              <span id="valBonePz" class="axis-val">0.0</span>
+            </div>
+          </div>
+
+          <div class="axis-group">
+            <div class="axis-group-head">
+              <span>缩放 Scale (×)</span>
+              <button id="btnResetBoneScale" class="link-btn">归 1</button>
+            </div>
+            <div class="axis-slider">
+              <span class="axis-tag axis-x">SX</span>
+              <input id="rngBoneSx" type="range" min="0" max="2.5" step="0.05" value="1" />
+              <span id="valBoneSx" class="axis-val">1.00</span>
+            </div>
+            <div class="axis-slider">
+              <span class="axis-tag axis-y">SY</span>
+              <input id="rngBoneSy" type="range" min="0" max="2.5" step="0.05" value="1" />
+              <span id="valBoneSy" class="axis-val">1.00</span>
+            </div>
+            <div class="axis-slider">
+              <span class="axis-tag axis-z">SZ</span>
+              <input id="rngBoneSz" type="range" min="0" max="2.5" step="0.05" value="1" />
+              <span id="valBoneSz" class="axis-val">1.00</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- TAB 3: Ambient Lighting, Skybox & Environment -->
+      <div id="tab-light" class="tab-content">
+        <div class="card">
+          <div class="card-head">
+            <span class="card-title">360° 3D 天空盒 (Skybox)</span>
+            <button id="btnUploadSkybox" class="link-btn">+ 上传全景/HDR</button>
+          </div>
+          <div class="sky-grid" id="skyGrid">
+            <button class="sky-btn active" data-sky="pastel">🌸 梦幻樱雾</button>
+            <button class="sky-btn" data-sky="clear">☁️ 晴空云海</button>
+            <button class="sky-btn" data-sky="sunset">🌇 落日晚霞</button>
+            <button class="sky-btn" data-sky="night">🌌 璀璨星夜</button>
+            <button class="sky-btn" data-sky="studioDark">🎬 暗夜影棚</button>
+            <button class="sky-btn" data-sky="gradient">🎨 纯色渐变</button>
+          </div>
+          <div id="customSkyBadge" class="custom-sky-badge hidden">
+            <span id="customSkyName">自定义全景天空盒</span>
+            <button id="btnUseCustomSky" class="link-btn">启用</button>
+          </div>
+          <div class="slider-row">
+            <label>天空盒旋转 <span id="valSkyRot" class="val">0°</span></label>
+            <input id="rngSkyRot" type="range" min="0" max="360" step="1" value="0" />
+          </div>
+          <div class="slider-row">
+            <label>天空盒亮度 <span id="valSkyExp" class="val">1.00</span></label>
+            <input id="rngSkyExp" type="range" min="0.2" max="2.0" step="0.02" value="1.0" />
+          </div>
+          <div class="slider-row">
+            <label>全景背景虚化 <span id="valSkyBlur" class="val">0%</span></label>
+            <input id="rngSkyBlur" type="range" min="0" max="1" step="0.02" value="0" />
+          </div>
+          <div class="toggle-grid">
+            <label class="toggle-chip" title="上传全景图/HDR 时自动提取天地色同步至环境光">
+              <input id="chkSkySyncAmb" type="checkbox" checked />
+              <span>上传时自动同步环境光色调</span>
+            </label>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-head">
+            <span class="card-title">快捷光照预设</span>
+          </div>
+          <div class="preset-grid">
+            <button class="preset-btn active" data-preset="studio">✨ 柔光摄影棚</button>
+            <button class="preset-btn" data-preset="daylight">☀️ 晴空日照</button>
+            <button class="preset-btn" data-preset="sunset">🌇 落日余晖</button>
+            <button class="preset-btn" data-preset="moonlight">🌙 月夜星蓝</button>
+            <button class="preset-btn" data-preset="neon">💜 霓虹轮廓</button>
+            <button class="preset-btn" data-preset="unlit">🎨 纯平无影</button>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-head">
+            <span class="card-title">环境光 (Hemisphere Ambient)</span>
+          </div>
+          <div class="slider-row">
+            <label>环境光强度 <span id="valAmbInt" class="val">0.72</span></label>
+            <input id="rngAmbInt" type="range" min="0" max="1.6" step="0.02" value="0.72" />
+          </div>
+          <div class="color-pair">
+            <label class="color-field">
+              <span>天空光色</span>
+              <input id="colSky" type="color" value="#f3f6ff" />
+            </label>
+            <label class="color-field">
+              <span>地面反光</span>
+              <input id="colGround" type="color" value="#d9d2e9" />
+            </label>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-head">
+            <span class="card-title">主光源与实时软阴影</span>
+          </div>
+          <div class="slider-row">
+            <label>主光强度 <span id="valKeyInt" class="val">0.56</span></label>
+            <input id="rngKeyInt" type="range" min="0" max="1.6" step="0.02" value="0.56" />
+          </div>
+          <div class="slider-row">
+            <label>水平方位角 <span id="valKeyAz" class="val">36°</span></label>
+            <input id="rngKeyAz" type="range" min="0" max="360" step="1" value="36" />
+          </div>
+          <div class="slider-row">
+            <label>光源仰角 <span id="valKeyEl" class="val">48°</span></label>
+            <input id="rngKeyEl" type="range" min="6" max="88" step="1" value="48" />
+          </div>
+          <div class="slider-row">
+            <label>阴影浓度 <span id="valShadow" class="val">52%</span></label>
+            <input id="rngShadow" type="range" min="0" max="1" step="0.02" value="0.52" />
+          </div>
+          <div class="color-pair">
+            <label class="color-field">
+              <span>主光颜色</span>
+              <input id="colKey" type="color" value="#fff8f2" />
+            </label>
+            <label class="color-field">
+              <span>补光颜色</span>
+              <input id="colFill" type="color" value="#cfe0ff" />
+            </label>
+          </div>
+          <div class="slider-row">
+            <label>补光强度 <span id="valFillInt" class="val">0.24</span></label>
+            <input id="rngFillInt" type="range" min="0" max="1.0" step="0.02" value="0.24" />
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-head">
+            <span class="card-title">轮廓光 & 着色后期</span>
+          </div>
+          <div class="segment-row" id="shadingSeg">
+            <button class="seg-btn active" data-shading="0">柔光 Studio</button>
+            <button class="seg-btn" data-shading="1">二次元 Toon</button>
+            <button class="seg-btn" data-shading="2">纯平 Unlit</button>
+          </div>
+          <div class="slider-row">
+            <label>边缘轮廓光 <span id="valRimInt" class="val">0.34</span></label>
+            <input id="rngRimInt" type="range" min="0" max="1.4" step="0.02" value="0.34" />
+          </div>
+          <div class="color-pair">
+            <label class="color-field">
+              <span>轮廓光色</span>
+              <input id="colRim" type="color" value="#ffffff" />
+            </label>
+            <label class="color-field">
+              <span>背景渐变</span>
+              <div class="dual-color">
+                <input id="colBgTop" type="color" value="#eef2fb" title="顶部背景色" />
+                <input id="colBgBot" type="color" value="#dfe6f6" title="底部背景色" />
+              </div>
+            </label>
+          </div>
+          <div class="slider-row">
+            <label>曝光度 <span id="valExp" class="val">1.00</span></label>
+            <input id="rngExp" type="range" min="0.5" max="1.6" step="0.02" value="1.00" />
+          </div>
+          <div class="slider-row">
+            <label>饱和度 <span id="valSat" class="val">1.02</span></label>
+            <input id="rngSat" type="range" min="0.4" max="1.6" step="0.02" value="1.02" />
+          </div>
+          <div class="toggle-grid">
+            <label class="toggle-chip"><input id="chkStage" type="checkbox" checked /><span>地面舞台</span></label>
+            <label class="toggle-chip"><input id="chkGrid" type="checkbox" checked /><span>地面网格</span></label>
+            <label class="toggle-chip"><input id="chkTransparent" type="checkbox" /><span>透明背景</span></label>
+          </div>
+        </div>
+      </div>
+
+      <!-- TAB 3: Model, Textures & Hot-Swap -->
+      <div id="tab-model" class="tab-content">
+        <div class="card">
+          <div class="card-head">
+            <span class="card-title">当前模型信息</span>
+          </div>
+          <div class="info-block">
+            <div id="infoName" class="info-name">未加载模型</div>
+            <div id="infoTips" class="info-tips"></div>
+          </div>
+          <div class="model-part-row">
+            <span>展示部件：</span>
+            <div class="segment-row compact" id="partSeg">
+              <button class="seg-btn active" data-part="main">主模型 (main)</button>
+              <button class="seg-btn" data-part="arm">手臂 (arm)</button>
+            </div>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-head">
+            <span class="card-title">皮肤贴图切换</span>
+            <button id="btnAddTex" class="link-btn">+ 替换/添加 PNG</button>
+          </div>
+          <div id="texList" class="tex-list"></div>
+          <div class="tex-preview-wrap">
+            <img id="texPreview" alt="当前贴图预览" />
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-head">
+            <span class="card-title">单独导入 / 热替换</span>
+          </div>
+          <div class="stack-btns">
+            <button id="btnReplaceAnim" class="btn btn-ghost btn-full">🎬 加载外部 .animation.json</button>
+            <button id="btnImportFiles2" class="btn btn-primary btn-full">📦 导入完整 .zip / .bbmodel 模型</button>
+          </div>
+          <p class="help-note">
+            支持标准 YSM 2.6.0 / 1.x 模型压缩包（含 <code>ysm.json</code>）、解压目录、Blockbench <code>.bbmodel</code>，以及多选散文件（<code>main.json</code> + <code>default.png</code> + <code>main.animation.json</code>），全部在浏览器本地零上传解析。
+          </p>
+        </div>
+      </div>
+    </aside>
+  </main>
+
+  <script type="module" src="js/app.js"></script>
+</body>
+</html>
