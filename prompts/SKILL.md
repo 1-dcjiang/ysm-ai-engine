@@ -17,7 +17,7 @@ Read `prompts/AGENT_GUIDE.md` for full coordinate, rotation, and YSM 2.6.0 bone 
    ```bash
    ysm-analyze <reference_image> -o reference --height 34.0
    ```
-   Open `reference/ref_ruler.png` and `reference/crops/*` visually before writing geometry.
+   Open `reference/ref_ruler.png`, `reference/crops/zoom_head_front.png` (`1.0u` grid), `reference/crops/zoom_face_super.png` (4× facial super-zoom), and `zoom_head_side.png`/`zoom_head_back.png` visually BEFORE writing geometry.
 
 2. **Phase 1 — Skeleton & Proportions Blockout**:
    - Create `build_model.py` using `YSMModel` with all 18 required bones/locators.
@@ -28,10 +28,14 @@ Read `prompts/AGENT_GUIDE.md` for full coordinate, rotation, and YSM 2.6.0 bone 
      ```
    - Inspect images and present milestone comparison to the user.
 
-3. **Phase 2 & 3 — Detail Sculpting & 50/50 Overlay Alignment**:
-   - Put eyes on separate `EyeRight`/`EyeLeft` bones under `Head` for independent sub-unit alignment.
-   - Sculpt headgear, sheet/voxel hair with full side-view Z thickness, clothing pleats, and 3D emblems.
-   - Verify Front (`yaw=0`), Left Side (`yaw=90`), and Back (`yaw=180`) with `ysm-render overlay`:
+3. **Phase 2 — Face-First Sculpt & Front Overlay Gate**:
+   - Read eye size, spacing, brow height, pupil/iris/highlight layers, blush, and bangs Z-clearance directly from `zoom_face_super.png` and `zoom_head_front.png` (never guess eyes from the full-body sheet!).
+   - Put eyes on separate `EyeRight`/`EyeLeft` bones `~0.03u` in front of the skin face, using crisp multi-layer pixel panels or high-res `face_painter` patches so facial details stay razor sharp.
+   - Verify with front head 50/50 overlay (`ysm-render overlay ... --yaw 0`) and `ysm-render closeups` before moving on.
+
+4. **Phase 3 — Hair Layering, Side Thickness & 360° Polish**:
+   - Sculpt layered sheet/voxel hair (avoid thin noodle strips or bulky bricks), verify subtle color tints (e.g. pale lavender tint on white hair), and enforce full side-view Z thickness.
+   - Verify Left Side (`yaw=90`) and Back (`yaw=180`) with `ysm-render overlay`:
      ```bash
      ysm-render overlay <geo> <tex> reference/crops/ref_front.png -o renders/ov_front.png --yaw 0 --ymin 22 --ymax 34.6
      ysm-render overlay <geo> <tex> reference/crops/ref_side.png  -o renders/ov_side.png  --yaw 90 --ymin 10.5 --ymax 34.5

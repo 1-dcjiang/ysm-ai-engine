@@ -147,12 +147,78 @@ def analyze_reference(
             draw.text((4, max(0, y - 10)), f"{u}u", fill=(200, 30, 70))
     ruler.save(out_dir / "ref_ruler.png")
 
+    # Auto high-res face & head zoom crops so multimodal AI agents never guess facial pixels
+    detail_crops: Dict[str, str] = {}
+    head_y_min_u = round(target_height_u * 0.62, 2)
+    head_y_max_u = round(target_height_u, 2)
+    hy0 = max(0, int(round(global_y0 - 0.02 * global_h)))
+    hy1 = min(h, int(round(global_y1 - 0.62 * global_h)))
+
+    for name, (x0, _, x1, _) in zip(view_names, boxes):
+        if hy1 <= hy0 + 8 or x1 <= x0 + 8:
+            continue
+        cx_mid = 0.5 * (x0 + x1)
+        head_crop = img_rgb.crop((max(0, x0 - 6), hy0, min(w, x1 + 6), hy1))
+
+        if name == "ref_front":
+            # 1) 3x gridded front head zoom (1.0u grid + X=0 center axis)
+            scale = 3
+            zw, zh = head_crop.width * scale, head_crop.height * scale
+            z_head = head_crop.resize((zw, zh), Image.Resampling.NEAREST).convert("RGBA")
+            grid_ov = Image.new("RGBA", (zw, zh), (0, 0, 0, 0))
+            gd = ImageDraw.Draw(grid_ov)
+            crop_x0 = max(0, x0 - 6)
+            mid_px = (cx_mid - crop_x0) * scale
+            # Vertical 1u lines around X=0
+            max_half_u = int((x1 - x0) / max(1e-6, ppu) * 0.6) + 2
+            for ux in range(-max_half_u, max_half_u + 1):
+                gx = int(round(mid_px + ux * ppu * scale))
+                if 0 <= gx < zw:
+                    col = (255, 60, 100, 150) if ux == 0 else (60, 175, 255, 95)
+                    gd.line([(gx, 0), (gx, zh)], fill=col, width=1)
+                    if ux % 2 == 0:
+                        gd.text((gx + 2, 2), f"{ux:+d}u" if ux else "0", fill=(200, 40, 80, 220))
+            # Horizontal 1u lines from bottom of head crop to crown
+            u_start = int(head_y_min_u)
+            u_end = int(target_height_u) + 1
+            for uy in range(u_start, u_end + 1):
+                gy = int(round((global_y1 - uy * ppu - hy0) * scale))
+                if 0 <= gy < zh:
+                    col = (255, 60, 100, 140) if uy % 2 == 0 else (60, 175, 255, 95)
+                    gd.line([(0, gy), (zw, gy)], fill=col, width=1)
+                    gd.text((3, max(0, gy - 11)), f"{uy}u", fill=(200, 30, 70, 230))
+            z_head = Image.alpha_composite(z_head, grid_ov).convert("RGB")
+            p_head = crops_dir / "zoom_head_front.png"
+            z_head.save(p_head)
+            detail_crops["zoom_head_front"] = str(p_head.relative_to(out_dir).as_posix())
+
+            # 2) 4x clean un-gridded superzoom on facial core (68%..94% height, center 72% width)
+            fy0 = max(0, int(round(global_y1 - 0.94 * global_h)))
+            fy1 = min(h, int(round(global_y1 - 0.67 * global_h)))
+            fw_half = int(round((x1 - x0) * 0.36))
+            fx0 = max(0, int(round(cx_mid - fw_half)))
+            fx1 = min(w, int(round(cx_mid + fw_half)))
+            if fy1 > fy0 + 8 and fx1 > fx0 + 8:
+                face_crop = img_rgb.crop((fx0, fy0, fx1, fy1))
+                face_zoom = face_crop.resize((face_crop.width * 4, face_crop.height * 4), Image.Resampling.NEAREST)
+                p_face = crops_dir / "zoom_face_super.png"
+                face_zoom.save(p_face)
+                detail_crops["zoom_face_super"] = str(p_face.relative_to(out_dir).as_posix())
+        elif name in ("ref_side", "ref_back"):
+            tag = "zoom_head_side" if name == "ref_side" else "zoom_head_back"
+            z_other = head_crop.resize((int(head_crop.width * 2.5), int(head_crop.height * 2.5)), Image.Resampling.NEAREST)
+            p_other = crops_dir / f"{tag}.png"
+            z_other.save(p_other)
+            detail_crops[tag] = str(p_other.relative_to(out_dir).as_posix())
+
     analysis = {
         "image_size": [w, h],
         "target_height_u": target_height_u,
         "global_y": [global_y0, global_y1, global_h],
         "px_per_u": round(ppu, 4),
+        "head_y_range_u": [head_y_min_u, head_y_max_u],
         "views": views_meta,
+        "detail_crops": detail_crops,
         "dominant_palette": palette,
         "profile": profile,
     }
