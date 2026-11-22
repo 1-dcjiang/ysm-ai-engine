@@ -149,10 +149,15 @@ class PipelineTests(unittest.TestCase):
             s_out = render_skeleton_pivots(geo, tex, tmp_path / "skel.png")
             ov_ref = tmp_path / "ref_dummy.png"
             im_p.save(ov_ref)
-            o_out = render_overlay_compare(geo, tex, ov_ref, tmp_path / "ov.png")
+            o_out = render_overlay_compare(geo, tex, ov_ref, tmp_path / "ov.png", metrics_path=tmp_path / "ov_metrics.json")
 
             for fpath in (t_out, c_out, z_out, p_out, s_out, o_out):
                 self.assertTrue(fpath.exists() and fpath.stat().st_size > 1000)
+
+            metrics = json.loads((tmp_path / "ov_metrics.json").read_text(encoding="utf-8"))
+            self.assertIn("iou", metrics)
+            self.assertGreaterEqual(metrics["iou"], 0.0)
+            self.assertLessEqual(metrics["iou"], 1.0)
 
             # 4. Packaging produces valid zip & bbmodel
             zip_p, bb_p = package_all(pack, out_dir=tmp_path / "out", quiet=True)

@@ -740,6 +740,86 @@ def _detect_fg_span(arr: np.ndarray, row_y: int, thresh: float = 12.0) -> Option
     return 0.5 * float(xs[0] + xs[-1])
 
 
+def _to_rgb_on_bg(img: Image.Image, bg_color: Tuple[int, int, int]) -> Image.Image:
+    if img.mode == "RGBA":
+        bg = Image.new("RGB", img.size, bg_color)
+        bg.paste(img, mask=img.getchannel("A"))
+        return bg
+    return img.convert("RGB")
+
+
+def _alpha_fg_mask(img: Image.Image) -> Optional[np.ndarray]:
+    """Returns the exact alpha mask for images with real transparency, else None."""
+    alpha = np.asarray(img.getchannel("A"))
+    if not np.any(alpha < 255):
+        return None
+    return alpha > 0
+
+
+def compare_silhouettes(
+    ref_img: Union[str, Path, Image.Image],
+    model_img: Union[str, Path, Image.Image],
+    bg_color: Tuple[int, int, int] = (255, 255, 255),
+    threshold: float = 10.0,
+) -> dict:
+    """
+    Compares two same-scale renders against a background color and returns numeric
+    silhouette metrics. This gives an AI a stable target to optimize instead of
+    judging the 50/50 overlay only by eye.
+
+    Images with any non-opaque pixels use their alpha channel as the foreground
+    mask, so white/light clothing is not erased by the background. Opaque images
+    fall back to color distance from ``bg_color``. The model image is resized to
+    the reference size when they differ. If neither image has a foreground, IoU
+    is reported as 0.0 rather than a misleading perfect 1.0.
+    """
+    if not isinstance(ref_img, Image.Image):
+        with Image.open(ref_img) as im:
+            ref = im.convert("RGBA")
+    else:
+        ref = ref_img.convert("RGBA")
+    if not isinstance(model_img, Image.Image):
+        with Image.open(model_img) as im:
+            mod = im.convert("RGBA")
+    else:
+        mod = model_img.convert("RGBA")
+
+    if ref.size != mod.size:
+        mod = mod.resize(ref.size, Image.Resampling.BILINEAR)
+
+    ref_alpha_mask = _alpha_fg_mask(ref)
+    mod_alpha_mask = _alpha_fg_mask(mod)
+    ref_rgb = _to_rgb_on_bg(ref, bg_color)
+    mod_rgb = _to_rgb_on_bg(mod, bg_color)
+    ref_arr = np.asarray(ref_rgb, dtype=np.float32)
+    mod_arr = np.asarray(mod_rgb, dtype=np.float32)
+    bg = np.array(bg_color, dtype=np.float32)
+
+    if ref_alpha_mask is not None:
+        ref_mask = ref_alpha_mask
+    else:
+        ref_mask = np.linalg.norm(ref_arr - bg, axis=2) > threshold
+    if mod_alpha_mask is not None:
+        mod_mask = mod_alpha_mask
+    else:
+        mod_mask = np.linalg.norm(mod_arr - bg, axis=2) > threshold
+    union = np.logical_or(ref_mask, mod_mask)
+    inter = np.logical_and(ref_mask, mod_mask)
+    union_px = int(union.sum())
+    inter_px = int(inter.sum())
+    iou = 0.0 if union_px == 0 else inter_px / union_px
+    mae = float(np.abs(ref_arr - mod_arr)[union].mean()) if union_px else 0.0
+
+    return {
+        "iou": round(float(iou), 4),
+        "ref_coverage": round(float(ref_mask.mean()), 4),
+        "model_coverage": round(float(mod_mask.mean()), 4),
+        "mean_abs_diff": round(mae, 2),
+        "intersection_px": inter_px,
+        "union_px": union_px,
+    }
+
+
 def render_overlay_compare(
     geo_path: Union[str, Path],
     tex_path: Union[str, Path],
@@ -751,6 +831,7 @@ def render_overlay_compare(
     half_w_u: float = 6.5,
     title: str = "Region",
     panel_h: int = 460,
+    metrics_path: Optional[Union[str, Path]] = None,
 ) -> Path:
     """
     Renders a pixel-matched [REF | MODEL | 50/50 Overlay] comparison sheet at exact orthographic scale!
@@ -799,6 +880,13 @@ def render_overlay_compare(
     sheet.paste(_label_box(ref_crop, f"REF {title}"), (0, 0))
     sheet.paste(_label_box(mod_crop, f"MODEL {title}"), (pw, 0))
     sheet.paste(_label_box(blend, f"50/50 Overlay {title}"), (pw * 2, 0))
+
+    if metrics_path is not None:
+        metrics = compare_silhouettes(ref_crop, mod_crop)
+        metrics.update({"title": title, "yaw_deg": yaw_deg})
+        mp = Path(metrics_path)
+        mp.parent.mkdir(parents=True, exist_ok=True)
+        mp.write_text(json.dumps(metrics, indent=2, ensure_ascii=False), encoding="utf-8")
 
     out = Path(out_path)
     out.parent.mkdir(parents=True, exist_ok=True)
@@ -1026,6 +1114,7 @@ def main(argv: Optional[List[str]] = None):
     p_ov.add_argument("--ymax", type=float, default=None)
     p_ov.add_argument("--half-w", type=float, default=6.5)
     p_ov.add_argument("--title", type=str, default="Region")
+    p_ov.add_argument("--metrics", type=Path, default=None, help="Write silhouette IoU metrics JSON")
 
     p_pose = sub.add_parser("poses", help="Render animation pose grid")
     p_pose.add_argument("geo", type=Path)
@@ -1047,7 +1136,7 @@ def main(argv: Optional[List[str]] = None):
     elif args.cmd == "closeups":
         p = render_closeups(args.geo, args.tex, args.crops, args.out)
     elif args.cmd == "overlay":
-        p = render_overlay_compare(args.geo, args.tex, args.ref, args.out, yaw_deg=args.yaw, y_min=args.ymin, y_max=args.ymax, half_w_u=args.half_w, title=args.title)
+        p = render_overlay_compare(args.geo, args.tex, args.ref, args.out, yaw_deg=args.yaw, y_min=args.ymin, y_max=args.ymax, half_w_u=args.half_w, title=args.title, metrics_path=args.metrics)
     elif args.cmd == "poses":
         p = render_poses(args.geo, args.tex, args.main_anim, args.extra, args.out)
     elif args.cmd == "skeleton":

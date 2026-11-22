@@ -20,6 +20,7 @@ from .export_bbmodel import export_bbmodel
 from .package import package_all
 from .renderer import (
     BedrockScene,
+    compare_silhouettes,
     evaluate_animation,
     render_clay_turnaround,
     render_closeups,
@@ -37,6 +38,7 @@ __all__ = [
     "__version__",
     "ALL_FACES",
     "BedrockScene",
+    "compare_silhouettes",
     "REQUIRED_BONES",
     "REQUIRED_MAIN_ANIMS",
     "ShelfPacker",
