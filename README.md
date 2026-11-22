@@ -299,6 +299,13 @@ ysm-viewer dist/my_girl
       <sub>WebGL2 3D 预览器 (<code>ysm-viewer</code>)</sub>
     </td>
     <td align="center" width="180">
+      <a href="https://github.com/1-dcjiang">
+        <img src="https://github.com/1-dcjiang.png?size=160" width="92" height="92" alt="1-dcjiang" style="border-radius: 50%;" /><br />
+        <b>1-dcjiang</b>
+      </a><br />
+      <sub>引擎精度优化 · 校验器加固与 CI</sub>
+    </td>
+    <td align="center" width="180">
       <a href="https://deepmind.google/technologies/gemini/">
         <img src="assets/contributors/gemini.png" width="92" height="92" alt="Gemini" /><br />
         <b>Gemini</b>
