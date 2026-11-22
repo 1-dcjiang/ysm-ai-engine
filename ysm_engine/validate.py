@@ -3,7 +3,7 @@ Strict YSM 2.5 / 2.6 Model Pack Validator.
 
 Checks:
   1. UTF-8 (no BOM) valid JSON across all pack files.
-  2. ysm.json spec=2, metadata, exact-case file references exist.
+  2. ysm.json spec=2, metadata.name, metadata.license.type, exact-case file references exist.
   3. YSM 2.6.0 UV Standard: texture_width == PNG width, integer non-zero uv & uv_size, in-bounds.
   4. Required YSM bones & locators present and properly nested.
   5. arm.json has root LeftArm & RightArm with zero root rotation and valid UVs.
@@ -156,8 +156,18 @@ def validate_pack(pack_dir: Path, quiet: bool = False) -> List[str]:
 
     if ysm.get("spec") != 2:
         errors.append(f"ysm.json: spec must be 2, got {ysm.get('spec')!r}")
-    if not ysm.get("metadata", {}).get("name"):
-        errors.append("ysm.json: metadata.name is required")
+
+    metadata = ysm.get("metadata")
+    if not isinstance(metadata, dict):
+        errors.append("ysm.json: metadata must be an object")
+    else:
+        if not isinstance(metadata.get("name"), str) or not metadata["name"].strip():
+            errors.append("ysm.json: metadata.name is required")
+        license_info = metadata.get("license")
+        if not isinstance(license_info, dict):
+            errors.append("ysm.json: metadata.license is required")
+        elif not isinstance(license_info.get("type"), str) or not license_info["type"].strip():
+            errors.append("ysm.json: metadata.license.type is required")
 
     player = ysm.get("files", {}).get("player", {})
     model_cfg = player.get("model", {})

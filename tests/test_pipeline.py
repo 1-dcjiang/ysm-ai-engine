@@ -82,7 +82,10 @@ def _make_minimal_pack(root: Path) -> Path:
         json.dumps(
             {
                 "spec": 2,
-                "metadata": {"name": "Minimal Test Pack"},
+                "metadata": {
+                    "name": "Minimal Test Pack",
+                    "license": {"type": "CC0"},
+                },
                 "files": {
                     "player": {
                         "model": {"main": "models/main.json", "arm": "models/arm.json"},
@@ -152,6 +155,28 @@ class PipelineTests(unittest.TestCase):
                 self.assertIn("minimal_test_pack/ysm.json", names)
                 self.assertIn("minimal_test_pack/models/main.json", names)
                 self.assertIn("minimal_test_pack/models/arm.json", names)
+
+    def test_validate_requires_license(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            pack = _make_minimal_pack(Path(tmp))
+            ysm_path = pack / "ysm.json"
+            ysm = json.loads(ysm_path.read_text(encoding="utf-8"))
+            del ysm["metadata"]["license"]
+            ysm_path.write_text(json.dumps(ysm, indent=2), encoding="utf-8")
+
+            errors = validate_pack(pack, quiet=True)
+            self.assertIn("ysm.json: metadata.license is required", errors)
+
+    def test_validate_requires_license_type(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            pack = _make_minimal_pack(Path(tmp))
+            ysm_path = pack / "ysm.json"
+            ysm = json.loads(ysm_path.read_text(encoding="utf-8"))
+            ysm["metadata"]["license"] = {"type": "  "}
+            ysm_path.write_text(json.dumps(ysm, indent=2), encoding="utf-8")
+
+            errors = validate_pack(pack, quiet=True)
+            self.assertIn("ysm.json: metadata.license.type is required", errors)
 
 
 if __name__ == "__main__":
