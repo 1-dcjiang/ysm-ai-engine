@@ -15,7 +15,7 @@ import argparse
 import json
 import sys
 from pathlib import Path
-from typing import List, Set
+from typing import List, Set, Tuple
 from PIL import Image
 
 REQUIRED_BONES = [
@@ -73,11 +73,17 @@ REQUIRED_MAIN_ANIMS = [
 
 
 def _is_safe_pack_rel(rel) -> bool:
-    """Rejects empty, absolute, drive-qualified, or parent-escaping paths."""
+    """Rejects empty, absolute, drive-qualified, backslash, or parent-escaping paths."""
     if not isinstance(rel, str) or not rel:
+        return False
+    # YSM manifests use forward-slash relative paths; reject backslashes so a
+    # POSIX validator and a Windows game client agree on the same path.
+    if "\\" in rel:
         return False
     p = Path(rel)
     if p.is_absolute() or p.drive:
+        return False
+    if not p.parts:
         return False
     if any(part == ".." for part in p.parts):
         return False
@@ -87,6 +93,7 @@ def _is_safe_pack_rel(rel) -> bool:
 def _check_exact_case_path(root: Path, rel: str) -> bool:
     if not _is_safe_pack_rel(rel):
         return False
+    root_resolved = root.resolve()
     cur = root
     for part in Path(rel).parts:
         if not cur.is_dir():
@@ -94,8 +101,14 @@ def _check_exact_case_path(root: Path, rel: str) -> bool:
         names = {p.name for p in cur.iterdir()}
         if part not in names:
             return False
-        cur = cur / part
-    return cur.exists()
+        nxt = cur / part
+        try:
+            if not nxt.resolve().is_relative_to(root_resolved):
+                return False
+        except OSError:
+            return False
+        cur = nxt
+    return cur.is_file()
 
 
 def _load_json_no_bom(path: Path, errors: List[str]):
@@ -212,7 +225,7 @@ def validate_pack(pack_dir: Path, quiet: bool = False) -> List[str]:
         errors.append("ysm.json: files.player.texture must be a non-empty array")
         tex_w = tex_h = 512
     else:
-        tex_paths: List[str] = []
+        tex_paths: List[Tuple[int, str]] = []
         for i, entry in enumerate(tex_list):
             tex_rel = entry.get("uv") if isinstance(entry, dict) else entry
             if not _is_safe_pack_rel(tex_rel):
@@ -220,23 +233,40 @@ def validate_pack(pack_dir: Path, quiet: bool = False) -> List[str]:
             elif not _check_exact_case_path(pack_dir, tex_rel):
                 errors.append(f"ysm.json: missing or wrong-case texture[{i}]: {tex_rel!r}")
             else:
-                tex_paths.append(tex_rel)
+                tex_paths.append((i, tex_rel))
 
         if not tex_paths:
             tex_w = tex_h = 512
         else:
-            try:
-                with Image.open(pack_dir / tex_paths[0]) as im:
-                    tex_w, tex_h = im.size
-                    if im.mode != "RGBA":
-                        warnings.append(f"Texture {tex_paths[0]} mode is {im.mode}, RGBA recommended")
-            except Exception as e:
-                errors.append(f"ysm.json: unreadable texture {tex_paths[0]!r}: {e}")
-                tex_w = tex_h = 512
+            tex_w = tex_h = 512
+            base_size = None
+            for i, tex_rel in tex_paths:
+                try:
+                    with Image.open(pack_dir / tex_rel) as im:
+                        im.load()
+                        size = im.size
+                        mode = im.mode
+                        fmt = im.format
+                except Exception as e:
+                    errors.append(f"ysm.json: unreadable texture[{i}] {tex_rel!r}: {e}")
+                    continue
+
+                if i == 0:
+                    base_size = size
+                    tex_w, tex_h = size
+                elif base_size is not None and size != base_size:
+                    errors.append(
+                        f"ysm.json: texture[{i}] size {size[0]}x{size[1]} does not match "
+                        f"texture[0] {base_size[0]}x{base_size[1]}: {tex_rel!r}"
+                    )
+                if fmt != "PNG":
+                    errors.append(f"ysm.json: texture[{i}] is not a PNG ({fmt}): {tex_rel!r}")
+                if mode != "RGBA":
+                    warnings.append(f"Texture {tex_rel} mode is {mode}, RGBA recommended")
 
     main_bones: Set[str] = set()
     main_bones_map = {}
-    if main_rel and _is_safe_pack_rel(main_rel) and (pack_dir / main_rel).exists():
+    if main_rel and _check_exact_case_path(pack_dir, main_rel):
         main_geo = _load_json_no_bom(pack_dir / main_rel, errors)
         if main_geo:
             main_bones = _check_geo_uvs(main_geo, tex_w, tex_h, main_rel, errors)
@@ -271,7 +301,7 @@ def validate_pack(pack_dir: Path, quiet: bool = False) -> List[str]:
                     if not has_ancestor(child, anc):
                         errors.append(f"main.json: '{child}' must be nested under '{anc}'")
 
-    if arm_rel and _is_safe_pack_rel(arm_rel) and (pack_dir / arm_rel).exists():
+    if arm_rel and _check_exact_case_path(pack_dir, arm_rel):
         arm_geo = _load_json_no_bom(pack_dir / arm_rel, errors)
         if arm_geo:
             arm_bones = _check_geo_uvs(arm_geo, tex_w, tex_h, arm_rel, errors)
@@ -311,14 +341,19 @@ def validate_pack(pack_dir: Path, quiet: bool = False) -> List[str]:
                 if main_bones and bname not in main_bones:
                     errors.append(f"{arel} -> animation '{aname}' references unknown bone '{bname}'")
 
-    lang_rel = ysm.get("files", {}).get("language_path", "lang")
+    lang_rel = files.get("language_path", "lang")
     if not _is_safe_pack_rel(lang_rel):
         errors.append(f"ysm.json: language_path must stay inside the pack: {lang_rel!r}")
     else:
         lang_dir = pack_dir / lang_rel
-        if lang_dir.is_dir():
-            for lf in lang_dir.glob("*.json"):
-                _load_json_no_bom(lf, errors)
+        try:
+            if not lang_dir.resolve().is_relative_to(pack_dir.resolve()):
+                errors.append(f"ysm.json: language_path must stay inside the pack: {lang_rel!r}")
+            elif lang_dir.is_dir():
+                for lf in lang_dir.glob("*.json"):
+                    _load_json_no_bom(lf, errors)
+        except OSError:
+            errors.append(f"ysm.json: invalid language_path: {lang_rel!r}")
 
     if not quiet:
         print(f"=== YSM Validation Report for {pack_dir} ===")

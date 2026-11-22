@@ -8,6 +8,8 @@ import unittest
 import zipfile
 from pathlib import Path
 
+from PIL import Image
+
 ROOT = Path(__file__).resolve().parent.parent
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
@@ -220,6 +222,93 @@ class PipelineTests(unittest.TestCase):
 
             errors = validate_pack(pack, quiet=True)
             self.assertTrue(any("unreadable texture" in e for e in errors), errors)
+
+    def test_validate_reports_unreadable_additional_texture(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            pack = _make_minimal_pack(Path(tmp))
+            extra = pack / "textures" / "extra.png"
+            extra.write_text("not a png", encoding="utf-8")
+            _rewrite_ysm(
+                pack,
+                lambda d: d["files"]["player"]["texture"].append("textures/extra.png"),
+            )
+
+            errors = validate_pack(pack, quiet=True)
+            self.assertTrue(
+                any("unreadable texture[1]" in e and "textures/extra.png" in e for e in errors),
+                errors,
+            )
+
+    def test_validate_reports_additional_texture_size_mismatch(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            pack = _make_minimal_pack(Path(tmp))
+            Image.new("RGBA", (128, 128), (0, 0, 0, 255)).save(
+                pack / "textures" / "extra.png"
+            )
+            _rewrite_ysm(
+                pack,
+                lambda d: d["files"]["player"]["texture"].append("textures/extra.png"),
+            )
+
+            errors = validate_pack(pack, quiet=True)
+            self.assertTrue(
+                any(
+                    "texture[1] size 128x128" in e
+                    and "texture[0] 256x256" in e
+                    for e in errors
+                ),
+                errors,
+            )
+
+    def test_validate_reports_non_png_additional_texture(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            pack = _make_minimal_pack(Path(tmp))
+            Image.new("RGB", (256, 256), (0, 0, 0)).save(
+                pack / "textures" / "extra.png", format="JPEG"
+            )
+            _rewrite_ysm(
+                pack,
+                lambda d: d["files"]["player"]["texture"].append("textures/extra.png"),
+            )
+
+            errors = validate_pack(pack, quiet=True)
+            self.assertTrue(
+                any("texture[1] is not a PNG" in e and "JPEG" in e for e in errors),
+                errors,
+            )
+
+    def test_validate_survives_non_object_files(self):
+        for bad_files in (None, []):
+            with self.subTest(files=bad_files), tempfile.TemporaryDirectory() as tmp:
+                pack = _make_minimal_pack(Path(tmp))
+                _rewrite_ysm(pack, lambda d: d.__setitem__("files", bad_files))
+                errors = validate_pack(pack, quiet=True)
+                self.assertIn("ysm.json: files must be an object", errors)
+
+    def test_validate_rejects_empty_backslash_and_directory_paths(self):
+        for rel in (".", "./", "models", "..\\outside.json", "C:\\outside.json"):
+            with self.subTest(rel=rel), tempfile.TemporaryDirectory() as tmp:
+                pack = _make_minimal_pack(Path(tmp))
+                _rewrite_ysm(
+                    pack,
+                    lambda d, rel=rel: d["files"]["player"]["model"].__setitem__("main", rel),
+                )
+                errors = validate_pack(pack, quiet=True)
+                self.assertTrue(any("model.main" in e for e in errors), (rel, errors))
+
+    def test_validate_rejects_directory_texture_path(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            pack = _make_minimal_pack(Path(tmp))
+            _rewrite_ysm(
+                pack,
+                lambda d: d["files"]["player"]["texture"].__setitem__(0, "textures"),
+            )
+
+            errors = validate_pack(pack, quiet=True)
+            self.assertTrue(
+                any("missing or wrong-case texture[0]" in e for e in errors),
+                errors,
+            )
 
 
 if __name__ == "__main__":
