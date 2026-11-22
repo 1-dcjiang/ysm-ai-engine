@@ -7,7 +7,7 @@ name = "ysm-ai-engine"
 version = "0.1.0"
 description = "Procedural Minecraft YSM (Yes Steve Model) 2.6.0 modeling, SSAO software rendering, and validation engine built for AI agents."
 readme = "README.md"
-license = { text = "MIT" }
+license = { text = "Beerware" }
 requires-python = ">=3.9"
 authors = [
     { name = "chenx5452321" },

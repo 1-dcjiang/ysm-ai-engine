@@ -11,7 +11,7 @@
 [![CI](https://github.com/chenx5452321/ysm-ai-engine/actions/workflows/ci.yml/badge.svg)](https://github.com/chenx5452321/ysm-ai-engine/actions/workflows/ci.yml)
 [![Stars](https://img.shields.io/github/stars/chenx5452321/ysm-ai-engine?style=flat&color=8b7cff)](https://github.com/chenx5452321/ysm-ai-engine/stargazers)
 [![Forks](https://img.shields.io/github/forks/chenx5452321/ysm-ai-engine?style=flat&color=38bdf8)](https://github.com/chenx5452321/ysm-ai-engine/network/members)
-[![License: MIT](https://img.shields.io/badge/License-MIT-4ade80.svg)](LICENSE)
+[![License: Beerware](https://img.shields.io/badge/License-Beerware-f59e0b.svg)](LICENSE)
 [![Python 3.9+](https://img.shields.io/badge/Python-3.9%2B-3776AB.svg)](https://www.python.org/)
 [![YSM Spec](https://img.shields.io/badge/YSM-2.5%20%2F%202.6.0-c084fc.svg)](#-使用指南python-api--命令行全流程)
 
@@ -126,7 +126,7 @@ python -m unittest discover -s tests -v
 ysm-ai-engine/
 ├── README.md                          # 本文档
 ├── CONTRIBUTING.md                    # 贡献指南
-├── LICENSE                            # MIT 开源协议
+├── LICENSE                            # Beerware 啤酒开源协议
 ├── pyproject.toml                     # 包配置与 6 个 CLI 入口
 ├── requirements.txt                   # 轻量依赖 (numpy, pillow)
 │
@@ -319,4 +319,4 @@ ysm-viewer dist/my_girl
 
 ## 📄 License
 
-本项目基于 [MIT License](LICENSE) 开源。如果这个项目帮到了你，欢迎点一个 ⭐ **Star** 支持！
+本项目基于 [THE BEER-WARE LICENSE (Revision 42)](LICENSE) 开源（历史贡献提交沿用其原有 MIT 授权）。如果这个项目帮到了你，欢迎点一个 ⭐ **Star** 支持！
