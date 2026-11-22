@@ -105,11 +105,15 @@ class ShelfPacker:
         b = self.border
         pw = w + 2 * b + self.pad
         ph = h + 2 * b + self.pad
+        # With no gutter, keep the original inner-height shelf metric so legacy
+        # layouts stay byte-for-byte identical. With a gutter, the shelf metric
+        # must be the full footprint, otherwise neighbouring shelves overlap.
+        fit_h = ph if b else h
         best_idx = -1
         best_waste = 10**9
         for idx, (sy, sh, sx) in enumerate(self.shelves):
-            if sx + pw <= self.width and ph <= sh and sh <= max(ph + 4, int(ph * 1.6)):
-                waste = sh - ph
+            if sx + pw <= self.width and fit_h <= sh and sh <= max(fit_h + 4, int(fit_h * 1.6)):
+                waste = sh - fit_h
                 if waste < best_waste:
                     best_waste = waste
                     best_idx = idx
@@ -121,7 +125,7 @@ class ShelfPacker:
 
         if self.next_y + ph > self.height:
             for idx, (sy, sh, sx) in enumerate(self.shelves):
-                if sx + pw <= self.width and ph <= sh:
+                if sx + pw <= self.width and fit_h <= sh:
                     self.shelves[idx][2] = sx + pw
                     self.allocated.append((sx + b, sy + b, w, h, label))
                     return sx + b, sy + b
@@ -129,7 +133,7 @@ class ShelfPacker:
                 f"Texture atlas ({self.width}x{self.height}) out of space allocating {w}x{h} for '{label}'"
             )
         sy = self.next_y
-        self.shelves.append([sy, ph, pw])
+        self.shelves.append([sy, fit_h, pw])
         self.next_y += ph
         self.allocated.append((b, sy + b, w, h, label))
         return b, sy + b
