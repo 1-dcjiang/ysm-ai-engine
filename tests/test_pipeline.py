@@ -101,6 +101,13 @@ def _make_minimal_pack(root: Path) -> Path:
     return pack
 
 
+def _rewrite_ysm(pack: Path, mutate) -> None:
+    ysm_path = pack / "ysm.json"
+    data = json.loads(ysm_path.read_text(encoding="utf-8"))
+    mutate(data)
+    ysm_path.write_text(json.dumps(data, indent=2), encoding="utf-8")
+
+
 class PipelineTests(unittest.TestCase):
     def test_build_validate_render_and_package(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -152,6 +159,42 @@ class PipelineTests(unittest.TestCase):
                 self.assertIn("minimal_test_pack/ysm.json", names)
                 self.assertIn("minimal_test_pack/models/main.json", names)
                 self.assertIn("minimal_test_pack/models/arm.json", names)
+
+    def test_validate_rejects_parent_path_reference(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            pack = _make_minimal_pack(Path(tmp))
+            _rewrite_ysm(
+                pack,
+                lambda d: d["files"]["player"]["model"].__setitem__("main", "../outside.json"),
+            )
+
+            errors = validate_pack(pack, quiet=True)
+            self.assertIn(
+                "ysm.json: model.main must stay inside the pack: '../outside.json'",
+                errors,
+            )
+
+    def test_validate_checks_every_texture(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            pack = _make_minimal_pack(Path(tmp))
+            _rewrite_ysm(
+                pack,
+                lambda d: d["files"]["player"]["texture"].append("textures/missing.png"),
+            )
+
+            errors = validate_pack(pack, quiet=True)
+            self.assertIn(
+                "ysm.json: missing or wrong-case texture[1]: 'textures/missing.png'",
+                errors,
+            )
+
+    def test_validate_reports_unreadable_texture(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            pack = _make_minimal_pack(Path(tmp))
+            (pack / "textures" / "default.png").write_text("not a png", encoding="utf-8")
+
+            errors = validate_pack(pack, quiet=True)
+            self.assertTrue(any("unreadable texture" in e for e in errors), errors)
 
 
 if __name__ == "__main__":
