@@ -19,6 +19,8 @@ YSM 2.6.0 UV Standard Compliance:
   - Uses per-face UV on every cube.
   - texture_width == actual PNG width, texture_height == actual PNG height (UV unit = 1.0).
   - Every face's `uv` and `uv_size` are exact non-zero integers (>= 1) packed with zero overlap.
+  - Each face owns a 1px atlas gutter filled by edge replication, so linear
+    filtering at a face boundary samples that face's own colour, not a neighbour.
 """
 from __future__ import annotations
 
@@ -80,12 +82,19 @@ def tint_color(c: ColorLike, dr: int = 0, dg: int = 0, db: int = 0) -> Tuple[int
 
 
 class ShelfPacker:
-    """Deterministic integer 2D shelf rectangle packer with optional 1px padding."""
+    """
+    Deterministic integer 2D shelf rectangle packer.
 
-    def __init__(self, width: int, height: int, pad: int = 1):
+    `border` reserves a transparent gutter around every rect so the texture
+    exporter can replicate edge pixels into it. The gutter belongs to the rect,
+    so neighbouring faces never overwrite each other's bleed.
+    """
+
+    def __init__(self, width: int, height: int, pad: int = 1, border: int = 0):
         self.width = int(width)
         self.height = int(height)
         self.pad = int(pad)
+        self.border = max(0, int(border))
         self.shelves: List[List[int]] = []  # [y, h, next_x]
         self.next_y = 0
         self.allocated: List[Tuple[int, int, int, int, str]] = []
@@ -93,36 +102,66 @@ class ShelfPacker:
     def alloc(self, w: int, h: int, label: str = "") -> Tuple[int, int]:
         w = max(1, int(w))
         h = max(1, int(h))
-        pw = w + self.pad
-        ph = h + self.pad
+        b = self.border
+        pw = w + 2 * b + self.pad
+        ph = h + 2 * b + self.pad
+        # With no gutter, keep the original inner-height shelf metric so legacy
+        # layouts stay byte-for-byte identical. With a gutter, the shelf metric
+        # must be the full footprint, otherwise neighbouring shelves overlap.
+        fit_h = ph if b else h
         best_idx = -1
         best_waste = 10**9
         for idx, (sy, sh, sx) in enumerate(self.shelves):
-            if sx + pw <= self.width and h <= sh and sh <= max(h + 4, int(h * 1.6)):
-                waste = sh - h
+            if sx + pw <= self.width and fit_h <= sh and sh <= max(fit_h + 4, int(fit_h * 1.6)):
+                waste = sh - fit_h
                 if waste < best_waste:
                     best_waste = waste
                     best_idx = idx
         if best_idx >= 0:
             sy, sh, sx = self.shelves[best_idx]
             self.shelves[best_idx][2] = sx + pw
-            self.allocated.append((sx, sy, w, h, label))
-            return sx, sy
+            self.allocated.append((sx + b, sy + b, w, h, label))
+            return sx + b, sy + b
 
-        if self.next_y + h > self.height:
+        if pw > self.width:
+            raise RuntimeError(
+                f"Texture atlas width {self.width} cannot fit {w}x{h} with border={b} and pad={self.pad} for '{label}'"
+            )
+
+        if self.next_y + fit_h > self.height:
             for idx, (sy, sh, sx) in enumerate(self.shelves):
-                if sx + w <= self.width and h <= sh:
+                if sx + pw <= self.width and fit_h <= sh:
                     self.shelves[idx][2] = sx + pw
-                    self.allocated.append((sx, sy, w, h, label))
-                    return sx, sy
+                    self.allocated.append((sx + b, sy + b, w, h, label))
+                    return sx + b, sy + b
             raise RuntimeError(
                 f"Texture atlas ({self.width}x{self.height}) out of space allocating {w}x{h} for '{label}'"
             )
         sy = self.next_y
-        self.shelves.append([sy, h, pw])
+        self.shelves.append([sy, fit_h, pw])
         self.next_y += ph
-        self.allocated.append((0, sy, w, h, label))
-        return 0, sy
+        self.allocated.append((b, sy + b, w, h, label))
+        return b, sy + b
+
+    def bleed(self, atlas: np.ndarray) -> None:
+        """Replicates each rect's edge pixels into its reserved gutter."""
+        if self.border <= 0:
+            return
+        h_atlas, w_atlas = atlas.shape[:2]
+        b = self.border
+        for x, y, w, h, _ in self.allocated:
+            # Left/right strips first, then top/bottom across the expanded width
+            # so corners inherit the already-bled side strips.
+            if x > 0:
+                atlas[y:y + h, max(0, x - b):x] = atlas[y:y + h, x:x + 1]
+            if x + w < w_atlas:
+                atlas[y:y + h, x + w:min(w_atlas, x + w + b)] = atlas[y:y + h, x + w - 1:x + w]
+            xs = max(0, x - b)
+            xe = min(w_atlas, x + w + b)
+            if y > 0:
+                atlas[max(0, y - b):y, xs:xe] = atlas[y:y + 1, xs:xe]
+            if y + h < h_atlas:
+                atlas[y + h:min(h_atlas, y + h + b), xs:xe] = atlas[y + h - 1:y + h, xs:xe]
 
 
 def make_solid_patch(w: int, h: int, color: ColorLike) -> np.ndarray:
@@ -183,6 +222,7 @@ class YSMModel:
         visible_bounds_width: float = 3.0,
         visible_bounds_height: float = 3.5,
         visible_bounds_offset: Tuple[float, float, float] = (0.0, 1.25, 0.0),
+        atlas_bleed: int = 1,
     ):
         self.identifier = identifier
         self.texture_width = int(texture_width)
@@ -191,10 +231,18 @@ class YSMModel:
         self.visible_bounds_width = float(visible_bounds_width)
         self.visible_bounds_height = float(visible_bounds_height)
         self.visible_bounds_offset = [float(v) for v in visible_bounds_offset]
+        self.atlas_bleed = max(0, int(atlas_bleed))
 
         self.bones: Dict[str, dict] = {}
         self.bone_order: List[str] = []
-        self.packer = ShelfPacker(self.texture_width, self.texture_height, pad=1)
+        # `border` keeps every face's gutter private; without it a neighbour's
+        # bleed would land inside the same 1px gap and tint the opposite edge.
+        self.packer = ShelfPacker(
+            self.texture_width,
+            self.texture_height,
+            pad=0 if self.atlas_bleed else 1,
+            border=self.atlas_bleed,
+        )
         self.atlas = np.zeros((self.texture_height, self.texture_width, 4), dtype=np.uint8)
         self._cube_count = 0
 
@@ -527,9 +575,10 @@ class YSMModel:
         return p
 
     def export_texture(self, path: Union[str, Path]) -> Path:
-        """Writes the packed RGBA texture atlas PNG."""
+        """Writes the packed RGBA texture atlas PNG, with edge bleed applied."""
         p = Path(path)
         p.parent.mkdir(parents=True, exist_ok=True)
+        self.packer.bleed(self.atlas)
         Image.fromarray(self.atlas, mode="RGBA").save(p)
         return p
 
@@ -537,6 +586,7 @@ class YSMModel:
         """Writes an annotated UV atlas allocation preview image."""
         p = Path(path)
         p.parent.mkdir(parents=True, exist_ok=True)
+        self.packer.bleed(self.atlas)
         bg = np.full((self.texture_height, self.texture_width, 4), (30, 32, 44, 255), dtype=np.uint8)
         alpha = self.atlas[:, :, 3:4].astype(np.float32) / 255.0
         comp = (self.atlas[:, :, :3] * alpha + bg[:, :, :3] * (1.0 - alpha)).astype(np.uint8)
@@ -548,13 +598,24 @@ class YSMModel:
         return p
 
     def stats(self) -> dict:
-        """Returns geometry and atlas utilization summary statistics."""
+        """Returns geometry and atlas utilization summary statistics.
+
+        ``atlas_fill_pct`` counts painted face pixels only; ``atlas_footprint_pct``
+        also counts the private bleed gutters, so it is the value that fills up
+        first when ``atlas_bleed`` is enabled.
+        """
         used_px = sum(w * h for _, _, w, h, _ in self.packer.allocated)
+        footprint_px = sum(
+            (w + 2 * self.packer.border) * (h + 2 * self.packer.border)
+            for _, _, w, h, _ in self.packer.allocated
+        )
         total_px = self.texture_width * self.texture_height
         return {
             "bones": len(self.bone_order),
             "cubes": self._cube_count,
             "uv_rects": len(self.packer.allocated),
+            "atlas_bleed": self.packer.border,
             "atlas_used_y": self.packer.next_y,
             "atlas_fill_pct": round(100.0 * used_px / total_px, 2),
+            "atlas_footprint_pct": round(100.0 * footprint_px / total_px, 2),
         }

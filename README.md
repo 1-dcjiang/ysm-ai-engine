@@ -68,7 +68,7 @@ flowchart LR
 
 | 模块 | 核心能力 |
 | :--- | :--- |
-| **🧱 程序化建模与自动 UV**<br>`ysm_engine.builder` | 内置 Bedrock `1.12.0` 骨骼树构建、X=0 自动对称镜像（`add_mirrored_cube`，自动翻转旋转符号与左右贴图）、纯色/渐变/像素绘制回调（`face_painter`）；`ShelfPacker` 自动装箱生成**零重叠非零整数 per-face UV**；一键提取第一人称手臂 `models/arm.json`。 |
+| **🧱 程序化建模与自动 UV**<br>`ysm_engine.builder` | 内置 Bedrock `1.12.0` 骨骼树构建、X=0 自动对称镜像（`add_mirrored_cube`，自动翻转旋转符号与左右贴图）、纯色/渐变/像素绘制回调（`face_painter`）；`ShelfPacker` 自动装箱生成**零重叠非零整数 per-face UV**，并为每个面保留私有 **1px bleed gutter**（边缘像素外扩，避免线性采样串色）；一键提取第一人称手臂 `models/arm.json`。 |
 | **🎥 零 GPU SSAO 软渲染器**<br>`ysm_engine.renderer` | 纯 NumPy + PIL 实现，无需启动游戏或显卡上下文即可高速出图：支持**三点棚拍柔光 + 切平面修正 SSAO**、自动包围盒定焦、**`50/50` 叠图精准对齐**、Molang 动画姿态批量渲染与骨骼枢轴可视化。 |
 | **🌐 原生 WebGL2 3D 预览台**<br>`ysm_engine.viewer` | 零前端构建依赖、零第三方 JS 库，启动 `ysm-viewer` 即可在浏览器实时查看模型；支持 `.zip` / `.bbmodel` / 文件夹拖拽、逐骨骼调姿、动画播放、环境光与 360° 天空盒/HDR 光照检视。 |
 | **📏 参考图定量分析器**<br>`ysm_engine.analyze_ref` | 自动切分 1/2/3 视图设定图、统一脚底到头顶像素标尺、提取主色调色板，导出 Bedrock 单位网格标尺图（`ref_ruler.png`）与轮廓宽高测量 JSON。 |
