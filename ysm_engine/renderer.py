@@ -748,6 +748,14 @@ def _to_rgb_on_bg(img: Image.Image, bg_color: Tuple[int, int, int]) -> Image.Ima
     return img.convert("RGB")
 
 
+def _alpha_fg_mask(img: Image.Image) -> Optional[np.ndarray]:
+    """Returns the exact alpha mask for images with real transparency, else None."""
+    alpha = np.asarray(img.getchannel("A"))
+    if not np.any(alpha < 255):
+        return None
+    return alpha > 0
+
+
 def compare_silhouettes(
     ref_img: Union[str, Path, Image.Image],
     model_img: Union[str, Path, Image.Image],
@@ -758,6 +766,12 @@ def compare_silhouettes(
     Compares two same-scale renders against a background color and returns numeric
     silhouette metrics. This gives an AI a stable target to optimize instead of
     judging the 50/50 overlay only by eye.
+
+    Images with any non-opaque pixels use their alpha channel as the foreground
+    mask, so white/light clothing is not erased by the background. Opaque images
+    fall back to color distance from ``bg_color``. The model image is resized to
+    the reference size when they differ. If neither image has a foreground, IoU
+    is reported as 0.0 rather than a misleading perfect 1.0.
     """
     if not isinstance(ref_img, Image.Image):
         with Image.open(ref_img) as im:
@@ -773,19 +787,27 @@ def compare_silhouettes(
     if ref.size != mod.size:
         mod = mod.resize(ref.size, Image.Resampling.BILINEAR)
 
+    ref_alpha_mask = _alpha_fg_mask(ref)
+    mod_alpha_mask = _alpha_fg_mask(mod)
     ref_rgb = _to_rgb_on_bg(ref, bg_color)
     mod_rgb = _to_rgb_on_bg(mod, bg_color)
     ref_arr = np.asarray(ref_rgb, dtype=np.float32)
     mod_arr = np.asarray(mod_rgb, dtype=np.float32)
     bg = np.array(bg_color, dtype=np.float32)
 
-    ref_mask = np.linalg.norm(ref_arr - bg, axis=2) > threshold
-    mod_mask = np.linalg.norm(mod_arr - bg, axis=2) > threshold
+    if ref_alpha_mask is not None:
+        ref_mask = ref_alpha_mask
+    else:
+        ref_mask = np.linalg.norm(ref_arr - bg, axis=2) > threshold
+    if mod_alpha_mask is not None:
+        mod_mask = mod_alpha_mask
+    else:
+        mod_mask = np.linalg.norm(mod_arr - bg, axis=2) > threshold
     union = np.logical_or(ref_mask, mod_mask)
     inter = np.logical_and(ref_mask, mod_mask)
     union_px = int(union.sum())
     inter_px = int(inter.sum())
-    iou = 1.0 if union_px == 0 else inter_px / union_px
+    iou = 0.0 if union_px == 0 else inter_px / union_px
     mae = float(np.abs(ref_arr - mod_arr)[union].mean()) if union_px else 0.0
 
     return {
