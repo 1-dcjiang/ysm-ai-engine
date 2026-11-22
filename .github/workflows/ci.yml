@@ -8,7 +8,9 @@ on:
 
 jobs:
   test:
-    runs-on: ubuntu-latest
+    # ubuntu-latest moved to 26.04, whose setup-python manifest has no 3.9 build.
+    # Pin the job image so the declared 3.9 floor stays covered.
+    runs-on: ubuntu-24.04
     strategy:
       matrix:
         python-version: [ "3.9", "3.12" ]
