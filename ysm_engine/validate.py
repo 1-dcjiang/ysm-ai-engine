@@ -3,7 +3,7 @@ Strict YSM 2.5 / 2.6 Model Pack Validator.
 
 Checks:
   1. UTF-8 (no BOM) valid JSON across all pack files.
-  2. ysm.json spec=2, metadata.name, metadata.license.type, exact-case file references exist.
+  2. ysm.json spec=2, metadata.name, metadata.license.type, exact-case and in-pack file references exist.
   3. YSM 2.6.0 UV Standard: texture_width == PNG width, integer non-zero uv & uv_size, in-bounds.
   4. Required YSM bones & locators present and properly nested.
   5. arm.json has root LeftArm & RightArm with zero root rotation and valid UVs.
@@ -72,7 +72,21 @@ REQUIRED_MAIN_ANIMS = [
 ]
 
 
+def _is_safe_pack_rel(rel) -> bool:
+    """Rejects empty, absolute, drive-qualified, or parent-escaping paths."""
+    if not isinstance(rel, str) or not rel:
+        return False
+    p = Path(rel)
+    if p.is_absolute() or p.drive:
+        return False
+    if any(part == ".." for part in p.parts):
+        return False
+    return True
+
+
 def _check_exact_case_path(root: Path, rel: str) -> bool:
+    if not _is_safe_pack_rel(rel):
+        return False
     cur = root
     for part in Path(rel).parts:
         if not cur.is_dir():
@@ -169,34 +183,60 @@ def validate_pack(pack_dir: Path, quiet: bool = False) -> List[str]:
         elif not isinstance(license_info.get("type"), str) or not license_info["type"].strip():
             errors.append("ysm.json: metadata.license.type is required")
 
-    player = ysm.get("files", {}).get("player", {})
+    files = ysm.get("files")
+    if not isinstance(files, dict):
+        errors.append("ysm.json: files must be an object")
+        files = {}
+    player = files.get("player", {})
+    if not isinstance(player, dict):
+        errors.append("ysm.json: files.player must be an object")
+        player = {}
     model_cfg = player.get("model", {})
+    if not isinstance(model_cfg, dict):
+        errors.append("ysm.json: files.player.model must be an object")
+        model_cfg = {}
     main_rel = model_cfg.get("main")
     arm_rel = model_cfg.get("arm")
     tex_list = player.get("texture", [])
     anim_cfg = player.get("animation", {})
 
     for key, rel in [("model.main", main_rel), ("model.arm", arm_rel)]:
-        if not rel or not _check_exact_case_path(pack_dir, rel):
+        if not rel:
+            errors.append(f"ysm.json: missing or wrong-case path for {key}: {rel!r}")
+        elif not _is_safe_pack_rel(rel):
+            errors.append(f"ysm.json: {key} must stay inside the pack: {rel!r}")
+        elif not _check_exact_case_path(pack_dir, rel):
             errors.append(f"ysm.json: missing or wrong-case path for {key}: {rel!r}")
 
-    if not tex_list:
-        errors.append("ysm.json: files.player.texture must be non-empty")
+    if not isinstance(tex_list, list) or not tex_list:
+        errors.append("ysm.json: files.player.texture must be a non-empty array")
         tex_w = tex_h = 512
     else:
-        first_tex = tex_list[0]["uv"] if isinstance(tex_list[0], dict) else tex_list[0]
-        if not _check_exact_case_path(pack_dir, first_tex):
-            errors.append(f"ysm.json: missing or wrong-case texture: {first_tex!r}")
+        tex_paths: List[str] = []
+        for i, entry in enumerate(tex_list):
+            tex_rel = entry.get("uv") if isinstance(entry, dict) else entry
+            if not _is_safe_pack_rel(tex_rel):
+                errors.append(f"ysm.json: texture[{i}] must stay inside the pack: {tex_rel!r}")
+            elif not _check_exact_case_path(pack_dir, tex_rel):
+                errors.append(f"ysm.json: missing or wrong-case texture[{i}]: {tex_rel!r}")
+            else:
+                tex_paths.append(tex_rel)
+
+        if not tex_paths:
             tex_w = tex_h = 512
         else:
-            with Image.open(pack_dir / first_tex) as im:
-                tex_w, tex_h = im.size
-                if im.mode != "RGBA":
-                    warnings.append(f"Texture {first_tex} mode is {im.mode}, RGBA recommended")
+            try:
+                with Image.open(pack_dir / tex_paths[0]) as im:
+                    tex_w, tex_h = im.size
+                    if im.mode != "RGBA":
+                        warnings.append(f"Texture {tex_paths[0]} mode is {im.mode}, RGBA recommended")
+            except Exception as e:
+                errors.append(f"ysm.json: unreadable texture {tex_paths[0]!r}: {e}")
+                tex_w = tex_h = 512
 
     main_bones: Set[str] = set()
     main_bones_map = {}
-    if main_rel and (pack_dir / main_rel).exists():
+    if main_rel and _is_safe_pack_rel(main_rel) and (pack_dir / main_rel).exists():
         main_geo = _load_json_no_bom(pack_dir / main_rel, errors)
         if main_geo:
             main_bones = _check_geo_uvs(main_geo, tex_w, tex_h, main_rel, errors)
@@ -231,7 +271,7 @@ def validate_pack(pack_dir: Path, quiet: bool = False) -> List[str]:
                     if not has_ancestor(child, anc):
                         errors.append(f"main.json: '{child}' must be nested under '{anc}'")
 
-    if arm_rel and (pack_dir / arm_rel).exists():
+    if arm_rel and _is_safe_pack_rel(arm_rel) and (pack_dir / arm_rel).exists():
         arm_geo = _load_json_no_bom(pack_dir / arm_rel, errors)
         if arm_geo:
             arm_bones = _check_geo_uvs(arm_geo, tex_w, tex_h, arm_rel, errors)
@@ -246,7 +286,13 @@ def validate_pack(pack_dir: Path, quiet: bool = False) -> List[str]:
                     if any(abs(float(r)) > 1e-4 for r in rot):
                         errors.append(f"arm.json: '{side}' rotation must be [0,0,0], got {rot}")
 
+    if not isinstance(anim_cfg, dict):
+        errors.append("ysm.json: files.player.animation must be an object")
+        anim_cfg = {}
     for akey, arel in anim_cfg.items():
+        if not _is_safe_pack_rel(arel):
+            errors.append(f"ysm.json: animation.{akey} must stay inside the pack: {arel!r}")
+            continue
         if not _check_exact_case_path(pack_dir, arel):
             errors.append(f"ysm.json: missing animation.{akey}: {arel!r}")
             continue
@@ -265,10 +311,14 @@ def validate_pack(pack_dir: Path, quiet: bool = False) -> List[str]:
                 if main_bones and bname not in main_bones:
                     errors.append(f"{arel} -> animation '{aname}' references unknown bone '{bname}'")
 
-    lang_dir = pack_dir / ysm.get("files", {}).get("language_path", "lang")
-    if lang_dir.is_dir():
-        for lf in lang_dir.glob("*.json"):
-            _load_json_no_bom(lf, errors)
+    lang_rel = ysm.get("files", {}).get("language_path", "lang")
+    if not _is_safe_pack_rel(lang_rel):
+        errors.append(f"ysm.json: language_path must stay inside the pack: {lang_rel!r}")
+    else:
+        lang_dir = pack_dir / lang_rel
+        if lang_dir.is_dir():
+            for lf in lang_dir.glob("*.json"):
+                _load_json_no_bom(lf, errors)
 
     if not quiet:
         print(f"=== YSM Validation Report for {pack_dir} ===")
