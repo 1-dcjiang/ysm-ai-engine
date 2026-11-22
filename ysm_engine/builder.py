@@ -257,16 +257,23 @@ class YSMModel:
         face_patches: Optional[Dict[str, np.ndarray]] = None,
         face_painter: Optional[Callable[[str, int, int], np.ndarray]] = None,
         face_dims_override: Optional[Dict[str, Tuple[int, int]]] = None,
+        face_uv_scale: Optional[Dict[str, float]] = None,
         uv_scale: Optional[float] = None,
         share_sides: bool = False,
     ) -> dict:
         """
         Adds a cube with strict YSM 2.6.0 integer per-face UV packing and texture painting.
+        `face_uv_scale` overrides `uv_scale` for selected faces, so high-detail areas
+        (face, eyes, insignia) can get more pixels without raising the whole atlas budget.
         If share_sides=True and no custom per-face patches/painter/face_colors are provided,
         uses compact 2x2 or shared gradient UVs for small detail cubes to save atlas space.
         """
         if bone not in self.bones:
             raise ValueError(f"Unknown bone '{bone}'")
+        if face_uv_scale:
+            unknown = set(face_uv_scale) - set(ALL_FACES)
+            if unknown:
+                raise ValueError(f"Unknown face_uv_scale faces: {sorted(unknown)}")
         self._cube_count += 1
         label = name or f"{bone}_c{self._cube_count}"
         scale = float(uv_scale) if uv_scale is not None else self.texels_per_unit
@@ -285,9 +292,10 @@ class YSMModel:
                 if face_dims_override and face in face_dims_override:
                     pw, ph = face_dims_override[face]
                 else:
-                    pw, ph = self._face_pixel_dims((sx, sy, sz), face, scale)
+                    face_scale = float(face_uv_scale[face]) if face_uv_scale and face in face_uv_scale else scale
+                    pw, ph = self._face_pixel_dims((sx, sy, sz), face, face_scale)
 
-                if share_sides and face_painter is None and face_colors is None and face_patches is None:
+                if share_sides and face_painter is None and face_colors is None and face_patches is None and not face_uv_scale:
                     if solid_color is not None:
                         if shared_slot is None:
                             u, v = self.packer.alloc(2, 2, f"{label}_solid")
@@ -423,6 +431,18 @@ class YSMModel:
                 else:
                     fp[k] = np.ascontiguousarray(arr[:, ::-1, :])
             m_kwargs["face_patches"] = fp
+        if "face_uv_scale" in m_kwargs and m_kwargs["face_uv_scale"]:
+            fus = dict(m_kwargs["face_uv_scale"])
+            e_scale, w_scale = fus.get("east"), fus.get("west")
+            if e_scale is not None:
+                fus["west"] = e_scale
+            elif "west" in fus:
+                del fus["west"]
+            if w_scale is not None:
+                fus["east"] = w_scale
+            elif "east" in fus:
+                del fus["east"]
+            m_kwargs["face_uv_scale"] = fus
         if "face_painter" in m_kwargs and m_kwargs["face_painter"] is not None:
             orig_painter = m_kwargs["face_painter"]
 
