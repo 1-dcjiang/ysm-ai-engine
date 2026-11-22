@@ -123,7 +123,12 @@ class ShelfPacker:
             self.allocated.append((sx + b, sy + b, w, h, label))
             return sx + b, sy + b
 
-        if self.next_y + ph > self.height:
+        if pw > self.width:
+            raise RuntimeError(
+                f"Texture atlas width {self.width} cannot fit {w}x{h} with border={b} and pad={self.pad} for '{label}'"
+            )
+
+        if self.next_y + fit_h > self.height:
             for idx, (sy, sh, sx) in enumerate(self.shelves):
                 if sx + pw <= self.width and fit_h <= sh:
                     self.shelves[idx][2] = sx + pw
@@ -573,8 +578,17 @@ class YSMModel:
         return p
 
     def stats(self) -> dict:
-        """Returns geometry and atlas utilization summary statistics."""
+        """Returns geometry and atlas utilization summary statistics.
+
+        ``atlas_fill_pct`` counts painted face pixels only; ``atlas_footprint_pct``
+        also counts the private bleed gutters, so it is the value that fills up
+        first when ``atlas_bleed`` is enabled.
+        """
         used_px = sum(w * h for _, _, w, h, _ in self.packer.allocated)
+        footprint_px = sum(
+            (w + 2 * self.packer.border) * (h + 2 * self.packer.border)
+            for _, _, w, h, _ in self.packer.allocated
+        )
         total_px = self.texture_width * self.texture_height
         return {
             "bones": len(self.bone_order),
@@ -583,4 +597,5 @@ class YSMModel:
             "atlas_bleed": self.packer.border,
             "atlas_used_y": self.packer.next_y,
             "atlas_fill_pct": round(100.0 * used_px / total_px, 2),
+            "atlas_footprint_pct": round(100.0 * footprint_px / total_px, 2),
         }

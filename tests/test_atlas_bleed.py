@@ -7,7 +7,7 @@ from pathlib import Path
 
 import numpy as np
 
-from ysm_engine import YSMModel
+from ysm_engine import ShelfPacker, YSMModel
 
 
 RED = (220, 40, 40, 255)
@@ -119,6 +119,24 @@ class AtlasBleedTests(unittest.TestCase):
             m.export_texture(Path(tmp) / "tex.png")
         self.assertEqual(m.stats()["atlas_bleed"], 1)
         self.assertGreater(m.stats()["atlas_used_y"], 8)
+
+    def test_face_wider_than_the_atlas_raises_instead_of_overflowing(self):
+        packer = ShelfPacker(width=8, height=8, pad=0, border=1)
+        with self.assertRaises(RuntimeError):
+            packer.alloc(8, 1, "too_wide")
+
+    def test_legacy_zero_bleed_keeps_the_bottom_height_boundary(self):
+        # With border=0, pad=1, the old code tested next_y + h, not next_y + h + 1.
+        # A 5px face still fits exactly on an 8px atlas after a 2px shelf.
+        packer = ShelfPacker(width=16, height=8, pad=1, border=0)
+        self.assertEqual(packer.alloc(4, 2, "first"), (0, 0))
+        self.assertEqual(packer.alloc(4, 5, "last"), (0, 3))
+
+    def test_stats_reports_inner_fill_and_full_footprint(self):
+        m = self._directional_model()
+        stats = m.stats()
+        self.assertEqual(stats["atlas_bleed"], 1)
+        self.assertGreater(stats["atlas_footprint_pct"], stats["atlas_fill_pct"])
 
 
 if __name__ == "__main__":
