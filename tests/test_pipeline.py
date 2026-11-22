@@ -8,6 +8,8 @@ import unittest
 import zipfile
 from pathlib import Path
 
+from PIL import Image
+
 ROOT = Path(__file__).resolve().parent.parent
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
@@ -82,7 +84,10 @@ def _make_minimal_pack(root: Path) -> Path:
         json.dumps(
             {
                 "spec": 2,
-                "metadata": {"name": "Minimal Test Pack"},
+                "metadata": {
+                    "name": "Minimal Test Pack",
+                    "license": {"type": "CC0"},
+                },
                 "files": {
                     "player": {
                         "model": {"main": "models/main.json", "arm": "models/arm.json"},
@@ -99,6 +104,13 @@ def _make_minimal_pack(root: Path) -> Path:
         encoding="utf-8",
     )
     return pack
+
+
+def _rewrite_ysm(pack: Path, mutate) -> None:
+    ysm_path = pack / "ysm.json"
+    data = json.loads(ysm_path.read_text(encoding="utf-8"))
+    mutate(data)
+    ysm_path.write_text(json.dumps(data, indent=2), encoding="utf-8")
 
 
 class PipelineTests(unittest.TestCase):
@@ -152,6 +164,151 @@ class PipelineTests(unittest.TestCase):
                 self.assertIn("minimal_test_pack/ysm.json", names)
                 self.assertIn("minimal_test_pack/models/main.json", names)
                 self.assertIn("minimal_test_pack/models/arm.json", names)
+
+    def test_validate_requires_license(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            pack = _make_minimal_pack(Path(tmp))
+            ysm_path = pack / "ysm.json"
+            ysm = json.loads(ysm_path.read_text(encoding="utf-8"))
+            del ysm["metadata"]["license"]
+            ysm_path.write_text(json.dumps(ysm, indent=2), encoding="utf-8")
+
+            errors = validate_pack(pack, quiet=True)
+            self.assertIn("ysm.json: metadata.license is required", errors)
+
+    def test_validate_requires_license_type(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            pack = _make_minimal_pack(Path(tmp))
+            ysm_path = pack / "ysm.json"
+            ysm = json.loads(ysm_path.read_text(encoding="utf-8"))
+            ysm["metadata"]["license"] = {"type": "  "}
+            ysm_path.write_text(json.dumps(ysm, indent=2), encoding="utf-8")
+
+            errors = validate_pack(pack, quiet=True)
+            self.assertIn("ysm.json: metadata.license.type is required", errors)
+
+    def test_validate_rejects_parent_path_reference(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            pack = _make_minimal_pack(Path(tmp))
+            _rewrite_ysm(
+                pack,
+                lambda d: d["files"]["player"]["model"].__setitem__("main", "../outside.json"),
+            )
+
+            errors = validate_pack(pack, quiet=True)
+            self.assertIn(
+                "ysm.json: model.main must stay inside the pack: '../outside.json'",
+                errors,
+            )
+
+    def test_validate_checks_every_texture(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            pack = _make_minimal_pack(Path(tmp))
+            _rewrite_ysm(
+                pack,
+                lambda d: d["files"]["player"]["texture"].append("textures/missing.png"),
+            )
+
+            errors = validate_pack(pack, quiet=True)
+            self.assertIn(
+                "ysm.json: missing or wrong-case texture[1]: 'textures/missing.png'",
+                errors,
+            )
+
+    def test_validate_reports_unreadable_texture(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            pack = _make_minimal_pack(Path(tmp))
+            (pack / "textures" / "default.png").write_text("not a png", encoding="utf-8")
+
+            errors = validate_pack(pack, quiet=True)
+            self.assertTrue(any("unreadable texture" in e for e in errors), errors)
+
+    def test_validate_reports_unreadable_additional_texture(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            pack = _make_minimal_pack(Path(tmp))
+            extra = pack / "textures" / "extra.png"
+            extra.write_text("not a png", encoding="utf-8")
+            _rewrite_ysm(
+                pack,
+                lambda d: d["files"]["player"]["texture"].append("textures/extra.png"),
+            )
+
+            errors = validate_pack(pack, quiet=True)
+            self.assertTrue(
+                any("unreadable texture[1]" in e and "textures/extra.png" in e for e in errors),
+                errors,
+            )
+
+    def test_validate_reports_additional_texture_size_mismatch(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            pack = _make_minimal_pack(Path(tmp))
+            Image.new("RGBA", (128, 128), (0, 0, 0, 255)).save(
+                pack / "textures" / "extra.png"
+            )
+            _rewrite_ysm(
+                pack,
+                lambda d: d["files"]["player"]["texture"].append("textures/extra.png"),
+            )
+
+            errors = validate_pack(pack, quiet=True)
+            self.assertTrue(
+                any(
+                    "texture[1] size 128x128" in e
+                    and "texture[0] 256x256" in e
+                    for e in errors
+                ),
+                errors,
+            )
+
+    def test_validate_reports_non_png_additional_texture(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            pack = _make_minimal_pack(Path(tmp))
+            Image.new("RGB", (256, 256), (0, 0, 0)).save(
+                pack / "textures" / "extra.png", format="JPEG"
+            )
+            _rewrite_ysm(
+                pack,
+                lambda d: d["files"]["player"]["texture"].append("textures/extra.png"),
+            )
+
+            errors = validate_pack(pack, quiet=True)
+            self.assertTrue(
+                any("texture[1] is not a PNG" in e and "JPEG" in e for e in errors),
+                errors,
+            )
+
+    def test_validate_survives_non_object_files(self):
+        for bad_files in (None, []):
+            with self.subTest(files=bad_files), tempfile.TemporaryDirectory() as tmp:
+                pack = _make_minimal_pack(Path(tmp))
+                _rewrite_ysm(pack, lambda d: d.__setitem__("files", bad_files))
+                errors = validate_pack(pack, quiet=True)
+                self.assertIn("ysm.json: files must be an object", errors)
+
+    def test_validate_rejects_empty_backslash_and_directory_paths(self):
+        for rel in (".", "./", "models", "..\\outside.json", "C:\\outside.json"):
+            with self.subTest(rel=rel), tempfile.TemporaryDirectory() as tmp:
+                pack = _make_minimal_pack(Path(tmp))
+                _rewrite_ysm(
+                    pack,
+                    lambda d, rel=rel: d["files"]["player"]["model"].__setitem__("main", rel),
+                )
+                errors = validate_pack(pack, quiet=True)
+                self.assertTrue(any("model.main" in e for e in errors), (rel, errors))
+
+    def test_validate_rejects_directory_texture_path(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            pack = _make_minimal_pack(Path(tmp))
+            _rewrite_ysm(
+                pack,
+                lambda d: d["files"]["player"]["texture"].__setitem__(0, "textures"),
+            )
+
+            errors = validate_pack(pack, quiet=True)
+            self.assertTrue(
+                any("missing or wrong-case texture[0]" in e for e in errors),
+                errors,
+            )
 
 
 if __name__ == "__main__":
